@@ -1,0 +1,87 @@
+{{- $secret := readFile "../private/minikube.yaml" | fromYaml -}}
+cluster:
+  provider: minikube
+  minikube:
+    nodes: 1
+    version: v1.27.5
+
+# Common settings
+
+adminDomain: admin.llm-dashboard.local
+internalDomain: llm-dashboard.local
+adminIngressClass: nginx
+internalIngressClass: nginx
+topologyKeyZoneAffinity: "kubernetes.io/hostname"
+zone: minikube
+certManagerClusterIssuer: ca-internal
+
+# Releases
+
+ingress-nginx:
+  # The minikube addon is used instead.
+  installed: false
+
+# LiteLLM Gateway
+
+litellm:
+  installed: true
+  namespace: "litellm"
+  serviceName: "litellm"
+  servicePort: 4000
+  masterkey: {{ $secret.secrets.litellm.masterKey | quote }}
+  saltkey: {{ $secret.secrets.litellm.saltKey | quote }}
+  dbPassword: {{ $secret.secrets.litellm.dbPassword | quote }}
+  replicaCount: 1
+  liteadmin:
+    storageSize: 1Gi
+    resources:
+      requests:
+        cpu: "500m"
+        memory: "1Gi"
+      limits:
+        cpu: "1"
+        memory: "2Gi"
+
+  envVars:
+    LM_STUDIO_API_BASE: {{ $secret.secrets.inference.url | quote }}
+    LM_STUDIO_API_KEY: {{ $secret.secrets.inference.key | quote }}
+
+  proxy_config:
+    litellm_settings:
+      success_callback: ["prometheus"]
+      failure_callback: ["prometheus"]
+    model_list:
+      - model_name: "Local-model"
+        litellm_params:
+          model: {{ $secret.secrets.inference.model | quote }}
+          api_base: os.environ/LM_STUDIO_API_BASE
+          api_key: os.environ/LM_STUDIO_API_KEY
+          timeout: 600
+    general_settings:
+      master_key: os.environ/PROXY_MASTER_KEY
+      disable_spend_logs: false
+      disable_reset_budget: false
+    environment_variables:
+      LITELLM_LOCAL_MODEL_COST_MAP: "True"
+  externalDb:
+    enabled: false
+    host: ""
+    port: 5432
+    database: "litellm"
+    username: "litellm"
+
+# AnythingLLM
+
+anythingllm:
+  installed: true
+  storageSize: 5Gi
+  llmProvider: "generic-openai"
+  openAiTokenLimit: "32768"
+  authToken: {{ $secret.secrets.anythingllm.authToken | quote }}
+  jwtSecret: {{ $secret.secrets.anythingllm.jwtSecret | quote }}
+
+# Monitoring
+
+monitoring:
+  enabled: false
+  prometheusReleaseLabel: "prometheus"

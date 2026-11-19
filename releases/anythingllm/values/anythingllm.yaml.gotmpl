@@ -1,0 +1,71 @@
+# https://github.com/Mintplex-Labs/anything-llm/blob/master/cloud-deployments/helm/charts/anythingllm/values.yaml
+
+{{- with .Values | get "anythingllm" false }}
+{{- $secretName := $.Values | get "anythingllm.customSecretName" (printf "%s-secrets" ($.Release.Name | trimSuffix "-secrets" | trunc 53 | trimSuffix "-")) }}
+{{- $llmNs := $.Values | get "litellm.namespace" "litellm" -}}
+{{- $llmSvc := $.Values | get "litellm.serviceName" "litellm-litellm" -}}
+{{- $llmPort := $.Values | get "litellm.servicePort" 4000 -}}
+{{- $defaultBasePath := printf "http://%s.%s.svc.cluster.local:%v/v1" $llmSvc $llmNs $llmPort -}}
+{{- $defaultModel := (index $.Values.litellm.proxy_config.model_list 0).model_name -}}
+replicaCount: 1
+
+image:
+  repository: {{ . | get "image.repository" "mintplexlabs/anythingllm" }}
+  tag: {{ . | get "image.tag" "latest" | quote }}
+  pullPolicy: IfNotPresent
+
+config:
+  DISABLE_TELEMETRY: "true"
+  STORAGE_DIR: "/storage"
+  LLM_PROVIDER: {{ . | get "llmProvider" "generic-openai" | quote }}
+  GENERIC_OPEN_AI_BASE_PATH: {{ . | get "openAiBasePath" $defaultBasePath | quote }}
+  GENERIC_OPEN_AI_MODEL_PREF: {{ . | get "openAiModelPref" $defaultModel | quote }}
+  GENERIC_OPEN_AI_MODEL_TOKEN_LIMIT: {{ . | get "openAiTokenLimit" "32768" | quote }}
+  EMBEDDING_ENGINE: "native"
+  VECTOR_DB: "lancedb"
+
+envFrom:
+  - secretRef:
+      name: {{ $secretName }}
+
+persistentVolume:
+  size: {{ . | get "storageSize" "5Gi" }}
+  mountPath: "/storage"
+  accessModes:
+    - ReadWriteOnce
+
+startupProbe:
+  httpGet:
+    path: /api/ping
+    port: 3001
+  initialDelaySeconds: 15
+  periodSeconds: 10
+  failureThreshold: 30
+
+readinessProbe:
+  httpGet:
+    path: /api/ping
+    port: 3001
+  initialDelaySeconds: 15
+  periodSeconds: 5
+  successThreshold: 2
+
+livenessProbe:
+  httpGet:
+    path: /api/ping
+    port: 3001
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  failureThreshold: 3
+
+ingress:
+  enabled: true
+  className: {{ $.Values.internalIngressClass }}
+  annotations:
+    cert-manager.io/cluster-issuer: {{ $.Values.certManagerClusterIssuer }}
+  hosts:
+    - host: chat.{{ $.Values.internalDomain }}
+      paths:
+        - path: /
+          pathType: ImplementationSpecific
+{{- end }}

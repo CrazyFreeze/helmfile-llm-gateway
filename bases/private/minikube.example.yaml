@@ -1,0 +1,12 @@
+secrets:
+  litellm:
+    masterKey: "sk-CHANGE_ME"
+    saltKey: "sk-salt-CHANGE_ME"
+    dbPassword: "CHANGE_ME"
+  inference:
+    model: "openai/CHANGE_ME" 
+    url: "http://CHANGE_ME"
+    key: "CHANGE_ME"
+  anythingllm:
+    authToken: "CHANGE_ME"
+    jwtSecret: "CHANGE_ME"

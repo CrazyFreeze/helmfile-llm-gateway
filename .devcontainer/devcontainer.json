@@ -1,0 +1,37 @@
+{
+  "name": "Local LLMOps DevContainer",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": ".",
+    "options": ["--network=host"]
+  },
+  "remoteUser": "vscode",
+  "features": {
+    "ghcr.io/devcontainers/features/kubectl-helm-minikube:1": {
+      "version": "1.31.0",
+      "helm": "3.16.4",
+      "minikube": "none"
+    },
+    "ghcr.io/devcontainers-extra/features/helmfile:1": {
+      "version": "0.169.2"
+    },
+    "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {}
+  },
+  "mounts": [
+    "source=${localEnv:HOME}/.kube,target=/home/vscode/.kube,type=bind,consistency=cached",
+    "source=${localEnv:HOME}/.minikube,target=${localEnv:HOME}/.minikube,type=bind,consistency=cached"
+  ],
+  "runArgs": [
+    "--network=host"
+  ],
+  "postCreateCommand": "helmfile init --force --debug",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-kubernetes-tools.vscode-kubernetes-tools",
+        "redhat.vscode-yaml",
+        "ms-azuretools.vscode-docker"
+      ]
+    }
+  }
+}

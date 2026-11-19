@@ -1,0 +1,17 @@
+# Environment variables
+.env
+bases/private/*.yaml
+!bases/private/*.example.yaml
+
+# Promptfoo secrets and local cache
+evals/.env
+.promptfoo/
+evals/.promptfoo/
+
+# IDE-specific settings and files
+.vscode/
+.idea/
+
+# Temporary and backup files
+*.tmp
+*~

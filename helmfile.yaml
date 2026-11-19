@@ -1,0 +1,9 @@
+---
+bases:
+  - "bases/setup.yaml.gotmpl"
+---
+helmfiles:
+  - path: releases/litellm/helmfile.yaml.gotmpl
+  - path: releases/anythingllm/helmfile.yaml.gotmpl
+
+missingFileHandler: Error

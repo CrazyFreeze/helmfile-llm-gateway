@@ -1,0 +1,106 @@
+# https://github.com/BerriAI/litellm/blob/main/litellm/deploy/helm/litellm/values.yaml
+
+{{- with .Values | get "litellm" false }}
+{{- $secretName := $.Values | get "litellm.customSecretName" (printf "%s-liteadmin-secrets" ($.Release.Name | trunc 45 | trimSuffix "-")) }}
+{{- $extDbEnabled := . | get "externalDb.enabled" false }}
+global:
+  security:
+    allowInsecureImages: {{ not $extDbEnabled }}
+strategy:
+  type: Recreate
+replicaCount: {{ . | get "replicaCount" 1 }}
+migrationJob:
+  enabled: {{ $extDbEnabled }}
+  backoffLimit: 10
+  activeDeadlineSeconds: 600
+  extraInitContainers:
+  - name: wait
+    image: mirror.gcr.io/bitnamilegacy/os-shell:12-debian-12-r16
+    command:
+      - bash
+      - -c
+      - |
+        until echo > /dev/tcp/"$DATABASE_HOST"/"${DATABASE_PORT:-5432}"; do
+          echo "Waiting for PostgreSQL at $DATABASE_HOST..."
+          sleep 3
+        done
+    envFrom:
+      - secretRef:
+          name: {{ $secretName }}
+startupProbe:
+  httpGet:
+    path: /health/readiness
+    port: http
+  initialDelaySeconds: 15
+  periodSeconds: 10
+  failureThreshold: 30
+extraInitContainers:
+  - name: wait-for-postgres
+    image: mirror.gcr.io/bitnamilegacy/os-shell:12-debian-12-r16
+    command:
+      - bash
+      - -c
+      - |
+        until echo > /dev/tcp/"$DATABASE_HOST"/"${DATABASE_PORT:-5432}"; do
+          echo "Waiting for PostgreSQL at $DATABASE_HOST..."
+          sleep 3
+        done
+    envFrom:
+      - secretRef:
+          name: {{ $secretName }}
+{{- with . | get "liteadmin" false }}
+liteadmin:
+  storageSize: {{ . | get "storageSize" false }}
+  storageClassName: ""
+  {{- with . | get "resources" false }}
+  resources:
+    {{- . | toYaml | nindent 4 }}
+  {{- end }}
+{{- end }}
+{{- with . | get "proxy_config" false }}
+proxy_config:
+  {{- . | toYaml | nindent 2 }}
+{{- end }}
+environmentSecrets:
+  - {{ $secretName }}
+masterkeySecretName: {{ $secretName }}
+masterkeySecretKey: "LITELLM_MASTER_KEY"
+{{- with . | get "image" false }}
+image:
+  pullPolicy: {{ . | get "pullPolicy" | default "Always" }}
+  tag: {{ . | get "tag" false }}
+{{- end }}
+ingress:
+  enabled: true
+  className: {{ $.Values.internalIngressClass }}
+  labels: {}
+  annotations:
+    cert-manager.io/cluster-issuer: {{ $.Values.certManagerClusterIssuer }}
+  hosts:
+    - host: api.{{ $.Values.internalDomain }}
+      paths:
+        - path: /
+          pathType: ImplementationSpecific
+postgresql:
+  enabled: {{ not $extDbEnabled }}
+  architecture: standalone
+  auth:
+    existingSecret: {{ $secretName }}
+    secretKeys:
+      adminPasswordKey: DB_PASSWORD
+      userPasswordKey: DB_PASSWORD
+  image:
+    registry: mirror.gcr.io
+    repository: bitnamilegacy/postgresql
+    tag: 16.2.0-debian-12-r6
+  volumePermissions:
+    image:
+      registry: mirror.gcr.io
+      repository: bitnamilegacy/os-shell
+      tag: 12-debian-12-r16
+  metrics:
+    image:
+      registry: mirror.gcr.io
+      repository: bitnamilegacy/postgres-exporter
+      tag: 0.15.0-debian-12-r14
+{{- end }}

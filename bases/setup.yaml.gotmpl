@@ -1,0 +1,38 @@
+---
+helmDefaults:
+  atomic: true
+  cleanupOnFail: false
+  wait: true
+  timeout: 600
+  recreatePods: false
+---
+environments:
+{{- $basesDirRelPath := "undefined" }}
+{{- if isFile "./bases/setup.yaml.gotmpl" }}
+{{-   $basesDirRelPath = "." }}
+{{- else if isFile "./../../bases/setup.yaml.gotmpl" }}
+{{-   $basesDirRelPath = "./../.." }}
+{{- else }}
+{{-   fail "Cannot determine relative path to 'bases' folder" }}
+{{- end }}
+{{- range $_, $filename := readDir (printf "%s/bases/envs" $basesDirRelPath) }}
+{{-   if hasSuffix ".yaml.gotmpl" $filename }}
+{{-     $env := regexSplit "/" (trimSuffix ".yaml.gotmpl" $filename) -1 | last }}
+  {{ $env }}:
+    kubeContext: {{ $env }}
+{{-     $values := list
+          (printf "%s/bases/envs/%s.yaml.gotmpl" $basesDirRelPath $env) }}
+    values:
+      {{- toYaml $values | nindent 6 }}
+{{-     $private := printf "%s/bases/private/%s.yaml" $basesDirRelPath $env }}
+{{-     $secrets := printf "%s/bases/secrets/%s.yaml" $basesDirRelPath $env }}
+{{-     if isFile $private }}
+      - {{ $private }}
+{{-     else if and
+          (isFile $secrets)
+          (empty (env "RELEASE")) }}
+    secrets:
+      - {{ $secrets }}
+{{-     end }}
+{{-   end }}
+{{- end }}

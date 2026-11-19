@@ -1,0 +1,31 @@
+---
+bases:
+  - "../../bases/setup.yaml.gotmpl"
+---
+repositories:
+  - name: bedag
+    url: "https://bedag.github.io/helm-charts"
+
+releases:
+  - name: litellm-resources
+    labels:
+      app: litellm
+    chart: bedag/raw
+    version: 2.0.2
+    installed: {{ .Values | get "litellm.installed" false }}
+    namespace: litellm
+    values:
+      - values/custom-secrets.yaml.gotmpl
+      - values/monitoring.yaml.gotmpl
+
+  - name: litellm
+    labels:
+      app: litellm
+    chart: oci://ghcr.io/berriai/litellm-helm
+    version: 1.89.2
+    installed: {{ .Values | get "litellm.installed" false }}
+    namespace: litellm
+    needs:
+      - litellm/litellm-resources
+    values:
+      - values/litellm.yaml.gotmpl

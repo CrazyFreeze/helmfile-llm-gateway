@@ -1,0 +1,75 @@
+{{- if $.Values | get "monitoring.enabled" false }}
+{{- $appName := $.Release.Name | trimSuffix "-resources" -}}
+{{- $secretName := $.Values | get "litellm.customSecretName" (printf "%s-liteadmin-secrets" ($appName | trunc 45 | trimSuffix "-")) -}}
+{{- $promLabel := $.Values | get "monitoring.prometheusReleaseLabel" "prometheus" -}}
+
+templates:
+  - |
+    apiVersion: monitoring.coreos.com/v1
+    kind: ServiceMonitor
+    metadata:
+      name: {{ $appName }}-gateway-metrics
+      labels:
+        app.kubernetes.io/name: {{ $appName }}
+        release: {{ $promLabel }}
+    spec:
+      selector:
+        matchLabels:
+          app.kubernetes.io/name: {{ $appName }}
+      namespaceSelector:
+        matchNames:
+          - {{ $.Release.Namespace }}
+      endpoints:
+        - port: http
+          path: /metrics/
+          interval: 15s
+          scrapeTimeout: 10s
+          authorization:
+            type: Bearer
+            credentials:
+              name: {{ $secretName }}
+              key: LITELLM_MASTER_KEY
+
+  - |
+    apiVersion: monitoring.coreos.com/v1
+    kind: PrometheusRule
+    metadata:
+      name: {{ $appName }}-gateway-alerts
+      labels:
+        app.kubernetes.io/name: {{ $appName }}
+        release: {{ $promLabel }}
+    spec:
+      groups:
+        - name: litellm.rules
+          rules:
+            - alert: LiteLLMGatewayDown
+              expr: up{job="{{ $appName }}"} == 0
+              for: 1m
+              labels:
+                severity: critical
+              annotations:
+                summary: "LiteLLM Gateway недоступен"
+                description: "Экспортер метрик LiteLLM в неймспейсе {{ $.Release.Namespace }} не отвечает более 1 минуты."
+
+            - alert: LiteLLMHighErrorRate
+              expr: |
+                sum(rate(litellm_requests_metric{status_code=~"5.."}[5m]))
+                /
+                sum(rate(litellm_requests_metric[5m])) > 0.05
+              for: 2m
+              labels:
+                severity: warning
+              annotations:
+                summary: "Высокий процент ошибок (5xx) в LiteLLM Gateway"
+                description: "Более 5% запросов к LLM-провайдерам завершаются ошибкой за последние 5 минут."
+
+            - alert: LiteLLMHighLatency
+              expr: |
+                histogram_quantile(0.95, sum(rate(litellm_request_total_latency_metric_bucket[5m])) by (le, model)) > 30
+              for: 5m
+              labels:
+                severity: warning
+              annotations:
+                summary: "Высокая задержка ответа LLM (P95 > 30s)"
+                description: "95-й перцентиль времени генерации ответа для модели {{ `{{ "{{ $labels.model }}" }}` }} превышает 30 секунд."
+{{- end }}

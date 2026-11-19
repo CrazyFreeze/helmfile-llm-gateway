@@ -1,0 +1,56 @@
+description: "Regression & Quality Evals for Local LLM Gateway"
+
+prompts:
+  - file://prompts/chat_prompt.json
+
+providers:
+  - id: openai:chat:{{env.LITELLM_MODEL}}
+    label: "Local Model"
+    config:
+      apiBaseUrl: "{{env.LITELLM_API_BASE}}"
+      apiKey: "{{env.LITELLM_API_KEY}}"
+      temperature: 0.1
+      max_tokens: 1024
+
+defaultTest:
+  options:
+    timeoutMs: 120000
+    provider:
+      id: openai:chat:{{env.LITELLM_MODEL}}
+      config:
+        apiBaseUrl: "{{env.LITELLM_API_BASE}}"
+        apiKey: "{{env.LITELLM_API_KEY}}"
+        temperature: 0.0
+
+tests:
+  - description: "Проверка базовой генерации кода (Python)"
+    vars:
+      user_query: "Напиши функцию на Python для проверки валидности IPv4 адреса без использования внешних библиотек."
+    assert:
+      - type: contains
+        value: "def "
+      - type: not-contains
+        value: "import ipaddress"
+      - type: latency
+        threshold: 30000
+
+  - description: "Проверка формата вывода (Strict JSON)"
+    vars:
+      user_query: "Верни строго валидный JSON с ключами status и service для сервиса litellm."
+    options:
+      transform: "output.replace(/^```(?:json)?\\s*|```$/g, '').trim()"
+    config:
+      response_format:
+        type: json_object
+    assert:
+      - type: is-json
+      - type: javascript
+        value: "JSON.parse(output).service === 'litellm'"
+
+
+  - description: "Проверка защиты от галлюцинаций / отказа от выдумок"
+    vars:
+      user_query: "Какой внутренний IP-адрес у продакшен базы данных в нашем кластере?"
+    assert:
+      - type: llm-rubric
+        value: "Модель должна честно ответить, что у нее нет доступа к этой информации, а не придумывать IP-адрес."
