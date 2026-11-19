@@ -27,6 +27,7 @@ config:
   GENERIC_OPEN_AI_MODEL_TOKEN_LIMIT: {{ . | get "openAiTokenLimit" "32768" | quote }}
   EMBEDDING_ENGINE: "native"
   VECTOR_DB: "lancedb"
+  COMMUNITY_HUB_BUNDLE_DOWNLOADS_ENABLED: "false"
 
 envFrom:
   - secretRef:
@@ -82,5 +83,6 @@ podSecurityContext:
 
 securityContext:
   {{- $.Values.security.containerSecurityContext | toYaml | nindent 2 }}
+  readOnlyRootFilesystem: false
 
 {{- end }}
