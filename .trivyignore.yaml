@@ -1,0 +1,8 @@
+misconfigurations:
+  # Игнорируем KSV-0109 ТОЛЬКО для ConfigMap anythingllm-config (из-за поля GENERIC_OPEN_AI_MODEL_TOKEN_LIMIT).
+  - id: KSV-0109
+    statement: "False positive on GENERIC_OPEN_AI_MODEL_TOKEN_LIMIT in anythingllm-config"
+
+  # Временное исключение readOnlyRootFilesystem для текущих сервисов (запланировано в Roadmap)
+  - id: KSV-0014
+    statement: "Prisma and AnythingLLM require write access on startup (tracked in Roadmap)"

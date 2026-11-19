@@ -1,0 +1,54 @@
+name: Lint & Security Check
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  validate-helmfile:
+    name: Validate & Render Helmfile Templates
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.17.0
+
+      - name: Install Helmfile & Kubeconform
+        run: |
+          mkdir -p "$HOME/.local/bin"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          curl -sSL https://github.com/helmfile/helmfile/releases/download/v1.8.4/helmfile_1.8.4_linux_amd64.tar.gz | tar -xz -C /usr/local/bin helmfile
+          curl -sSL https://github.com/yannh/kubeconform/releases/download/v0.8.0/kubeconform-linux-amd64.tar.gz | tar -xz -C /usr/local/bin kubeconform
+
+      - name: Prepare mock secrets for dry-run render
+        run: |
+          cp bases/private/minikube.example.yaml bases/private/minikube.yaml
+          sed -i 's/CHANGE_ME/ci-mock-value/g' bases/private/minikube.yaml
+
+      - name: Render Helmfile manifests (Dry-Run)
+        run: |
+          helmfile -e minikube repos
+          helmfile -e minikube template --skip-tests > rendered.yaml
+          echo "Manifests rendered successfully ($(wc -l < rendered.yaml) lines)"
+
+      - name: Validate Kubernetes schemas (Kubeconform)
+        run: |
+          kubeconform -strict -ignore-missing-schemas -summary rendered.yaml
+
+      - name: Run Trivy config scan
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: 'config'
+          scanners: 'misconfig,secret'
+          scan-ref: 'rendered.yaml'
+          trivyignores: '.trivyignore.yaml'
+          severity: 'HIGH,CRITICAL'
+          exit-code: '1'
+
