@@ -21,7 +21,7 @@ releases:
   - name: anythingllm
     labels:
       app: anythingllm
-    chart: git::https://github.com/Mintplex-Labs/anything-llm@cloud-deployments/helm/charts/anythingllm?depth=1&ref=v1.20.0
+    chart: git::https://github.com/Mintplex-Labs/anything-llm@cloud-deployments/helm/charts/anythingllm?ref=v1.20.0
     installed: {{ .Values | get "anythingllm.installed" false }}
     namespace: anythingllm
     needs:
