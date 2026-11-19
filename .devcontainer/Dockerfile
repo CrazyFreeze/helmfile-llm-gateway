@@ -8,6 +8,7 @@ RUN sed -i 's|://ubuntu.com|mirror.yandex.ru|g; s|://ubuntu.com|mirror.yandex.ru
     curl \
     ca-certificates \
     git \
+    vim \
     make \
     jq \
     libatomic1 \
