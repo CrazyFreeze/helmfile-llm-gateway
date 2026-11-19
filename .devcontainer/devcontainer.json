@@ -5,6 +5,9 @@
     "context": ".",
     "options": ["--network=host"]
   },
+  "remoteEnv": {
+    "GIT_EDITOR": "vim"
+  },
   "remoteUser": "vscode",
   "features": {
     "ghcr.io/devcontainers/features/kubectl-helm-minikube:1": {

@@ -4,8 +4,9 @@ SECRET_FILE := bases/private/$(ENV).yaml
 SECRET_EXAMPLE := bases/private/$(ENV).example.yaml
 EVAL_DIR := evals
 RELEASE ?=
+TEST_IMAGE ?= mirror.gcr.io/library/busybox:1.36
 
-.PHONY: ensure-secrets diff apply deploy destroy eval eval-view
+.PHONY: ensure-secrets diff apply deploy destroy eval eval-view netpol
 
 ensure-secrets:
 	@if [ ! -f $(SECRET_FILE) ]; then \
@@ -42,4 +43,42 @@ eval-view:
 destroy: ensure-secrets
 	helmfile -e $(ENV) $(if $(RELEASE),-l name=$(RELEASE),) destroy
 
-deploy: apply eval
+netpol:
+	@NETPOL_ENABLED=$$(kubectl get networkpolicy -n litellm default-deny-all >/dev/null 2>&1 && echo "true" || echo "false"); \
+	if [ "$$NETPOL_ENABLED" = "false" ]; then \
+		echo "NetworkPolicies отключены. Пропуск сетевого аудита."; \
+		exit 0; \
+	fi; \
+	echo "Запуск аудита сетевой изоляции (Zero Trust NetworkPolicies)..."; \
+	\
+	if kubectl run nettest-rag-ok -n anythingllm --image=$(TEST_IMAGE) --labels="app.kubernetes.io/name=anythingllm" --restart=Never --rm --attach -- \
+		sh -c "sleep 2 && nc -zv -w 3 litellm.litellm.svc.cluster.local 4000" >/dev/null 2>&1; then \
+		echo "  [1/4] РАЗРЕШЕНО: RAG -> LiteLLM (:4000)"; \
+	else \
+		echo "  [1/4] ОШИБКА: Нет доступа RAG -> LiteLLM (:4000)"; exit 1; \
+	fi; \
+	\
+	if ! kubectl run nettest-rag-db -n anythingllm --image=$(TEST_IMAGE) --labels="app.kubernetes.io/name=anythingllm" --restart=Never --rm --attach -- \
+		sh -c "sleep 2 && nc -zv -w 3 litellm-postgresql.litellm.svc.cluster.local 5432" >/dev/null 2>&1; then \
+		echo "  [2/4] ЗАБЛОКИРОВАНО: RAG -> PostgreSQL (:5432)"; \
+	else \
+		echo "  [2/4] ОШИБКА: Открыт прямой доступ RAG -> PostgreSQL (:5432)!"; exit 1; \
+	fi; \
+	\
+	if ! kubectl run nettest-gw-rag -n litellm --image=$(TEST_IMAGE) --labels="app.kubernetes.io/name=litellm" --restart=Never --rm --attach -- \
+		sh -c "sleep 2 && nc -zv -w 3 anythingllm.anythingllm.svc.cluster.local 3001" >/dev/null 2>&1; then \
+		echo "  [3/4] ЗАБЛОКИРОВАНО: LiteLLM -> AnythingLLM (:3001)"; \
+	else \
+		echo "  [3/4] ОШИБКА: Открыт доступ LiteLLM -> AnythingLLM (:3001)!"; exit 1; \
+	fi; \
+	\
+	if ! kubectl run nettest-db-egress -n litellm --image=$(TEST_IMAGE) --labels="app.kubernetes.io/name=postgresql" --restart=Never --rm --attach -- \
+		sh -c "sleep 2 && nc -zv -w 3 1.1.1.1 443" >/dev/null 2>&1; then \
+		echo "  [4/4] ЗАБЛОКИРОВАНО: PostgreSQL -> Внешний мир (:443)"; \
+	else \
+		echo "  [4/4] ОШИБКА: Открыт исходящий трафик из PostgreSQL!"; exit 1; \
+	fi; \
+	\
+	echo "Сетевой аудит успешно пройден: контур Zero Trust подтвержден."
+
+deploy: apply netpol eval

@@ -118,8 +118,40 @@ make eval-view  # Открыть интерактивный веб-отчет в
 * В локальном профиле (`minikube.yaml.gotmpl`) установлен флаг `monitoring.enabled: false` для экономии оперативной памяти и совместимости с кластерами без установленных CRD Prometheus.
 * Для включения автоматического сбора метрик и алертов (недоступность шлюза, рост 5xx-ошибок, деградация `P95 Latency > 30s`) достаточно переключить `monitoring.enabled: true`.
 ---
+##  Безопасность и изоляция (Work in Progress)
+> **Статус:** базовая сетевая изоляция и защита контейнеров внедрены и протестированы, однако модуль безопасности находится в процессе доработки (в планах: добавление Pod Security Standards на уровне namespace и перевод `readOnlyRootFilesystem` в `true`).
+В проекте реализуется подход **Zero Trust** на двух уровнях: сетевая микросегментация между namspaces и ограничение привилегий самих контейнеров.
+#### a. Сетевая изоляция (`NetworkPolicy`)
+По умолчанию в неймспейсах `litellm` и `anythingllm` действует правило `default-deny-all` (запрет всего входящего и исходящего трафика). Разрешены только строго необходимые маршруты (управляются флагом `networkPolicies.enabled` в `bases/`):
 
+| Источник             | Цель                                         | Порт            | Статус            |
+| :------------------- | :------------------------------------------- | :-------------- | :---------------- |
+| `Ingress Controller` | `AnythingLLM` / `LiteLLM`                    | `3001` / `4000` | Разрешено         |
+| `AnythingLLM` (RAG)  | `LiteLLM Gateway`                            | `4000`          | Разрешено         |
+| `AnythingLLM` (RAG)  | `PostgreSQL` / `Inference Node` / `Internet` | ANY             | **Заблокировано** |
+| `LiteLLM Gateway`    | `PostgreSQL`                                 | `5432`          | Разрешено         |
+| `LiteLLM Gateway`    | `Inference Node` (внешний узел)              | `1234`          | Разрешено         |
+| `PostgreSQL`         | Любой исходящий трафик (Egress)              | ANY             | **Заблокировано** |
+| Все поды             | `CoreDNS` (`kube-system`)                    | `53` (TCP/UDP)  | Разрешено         |
+
+> **Важно для локального запуска:** стандартный сетевой мост Minikube (`docker` bridge) не поддерживает фильтрацию `NetworkPolicy`. Для работы сетевой изоляции в кластере должен быть установлен CNI с поддержкой политик (например, **Cilium** или **Calico**).
+#### b. Изоляция контейнеров и Kubernetes API
+* **Отключение токенов API:** во всех подах (`AnythingLLM`, `LiteLLM`, `PostgreSQL`) отключено автоматическое монтирование токена sa (`automountServiceAccountToken: false`).
+* **Минимизация привилегий (`SecurityContext`):**
+  * Включен запрет повышения привилегий (`allowPrivilegeEscalation: false`), сброшены все Linux Capabilities (`drop: ["ALL"]`, `CapEff: 0`) и применен `seccompProfile: RuntimeDefault`.
+  * Контейнеры `AnythingLLM` и `PostgreSQL` запускаются от непривилегированных пользователей (`UID 1000` и `UID 1001`).
+
+#### c. Аудит изоляции
+Проверить корректность применения сетевых политик в живом кластере можно встроенной целью `Makefile` (запускается автоматически, если `networkPolicies.enabled: true`):
+
+```bash
+make netpol
+```
+
+---
 ## Roadmap (Планы по развитию)
 - [ ] Интеграция с HashiCorp Vault и External Secrets Operator (ESO) для управления API-ключами.
 - [ ] Добавление Fallback-моделей в LiteLLM (переключение на облачный API при недоступности локального GPU-хоста).
 - [ ] Настройка алертов в Alertmanager при росте latency (TTFT - Time To First Token) или ошибках 5xx.
+- [ ] Добавление браузерной IDE (`code-server`) в отдельный релиз/неймспейс с преднастроенным AI-ассистентом (Continue / Cline), работающим через шлюз `LiteLLM` в рамках контура `NetworkPolicy`.
+- [ ] Развертывание базового LLM-агента с подключением к `LiteLLM` и изоляцией исходящего трафика (Egress) только на разрешенные инструменты и API.

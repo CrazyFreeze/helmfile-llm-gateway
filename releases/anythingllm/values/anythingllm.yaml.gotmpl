@@ -1,4 +1,4 @@
-# https://github.com/Mintplex-Labs/anything-llm/blob/master/cloud-deployments/helm/charts/anythingllm/values.yaml
+# https://github.com/Mintplex-Labs/anything-llm/blob/v1.20.0/cloud-deployments/helm/charts/anythingllm/values.yaml
 
 {{- with .Values | get "anythingllm" false }}
 {{- $secretName := $.Values | get "anythingllm.customSecretName" (printf "%s-secrets" ($.Release.Name | trimSuffix "-secrets" | trunc 53 | trimSuffix "-")) }}
@@ -11,8 +11,12 @@ replicaCount: 1
 
 image:
   repository: {{ . | get "image.repository" "mintplexlabs/anythingllm" }}
-  tag: {{ . | get "image.tag" "latest" | quote }}
+  tag: {{ . | get "image.tag" "1.20.0" | quote }}
   pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: {{ . | get "servicePort" | default "3001" }}
 
 config:
   DISABLE_TELEMETRY: "true"
@@ -37,7 +41,7 @@ persistentVolume:
 startupProbe:
   httpGet:
     path: /api/ping
-    port: 3001
+    port: {{ . | get "servicePort" | default "3001" }}
   initialDelaySeconds: 15
   periodSeconds: 10
   failureThreshold: 30
@@ -45,7 +49,7 @@ startupProbe:
 readinessProbe:
   httpGet:
     path: /api/ping
-    port: 3001
+    port: {{ . | get "servicePort" | default "3001" }}
   initialDelaySeconds: 15
   periodSeconds: 5
   successThreshold: 2
@@ -53,7 +57,7 @@ readinessProbe:
 livenessProbe:
   httpGet:
     path: /api/ping
-    port: 3001
+    port: {{ . | get "servicePort" | default "3001" }}
   initialDelaySeconds: 30
   periodSeconds: 10
   failureThreshold: 3
@@ -68,4 +72,15 @@ ingress:
       paths:
         - path: /
           pathType: ImplementationSpecific
+
+serviceAccount:
+  create: true
+  automount: {{ $.Values.security.automountServiceAccountToken }}
+
+podSecurityContext:
+  {{- $.Values.security.podSecurityContext | toYaml | nindent 2 }}
+
+securityContext:
+  {{- $.Values.security.containerSecurityContext | toYaml | nindent 2 }}
+
 {{- end }}
