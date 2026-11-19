@@ -1,0 +1,67 @@
+{{- if .Values.networkPolicies.enabled }}
+templates:
+  - |
+    apiVersion: networking.k8s.io/v1
+    kind: NetworkPolicy
+    metadata:
+      name: default-deny-all
+    spec:
+    podSelector: {}
+    policyTypes:
+    - Ingress
+    - Egress
+  - |
+    apiVersion: networking.k8s.io/v1
+    kind: NetworkPolicy
+    metadata:
+      name: allow-dns-egress
+    spec:
+      podSelector: {}
+      policyTypes:
+      - Egress
+      egress:
+      - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+        ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+  - |
+    apiVersion: networking.k8s.io/v1
+    kind: NetworkPolicy
+    metadata:
+      name: anythingllm-policy
+      namespace: anythingllm
+    spec:
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/name: anythingllm
+      policyTypes:
+      - Ingress
+      - Egress
+      ingress:
+      - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+        ports:
+        - protocol: TCP
+          port: {{ $.Values | get "anythingllm.servicePort" | default "3001" }}
+      egress:
+      - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: litellm
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: litellm
+        ports:
+        - protocol: TCP
+          port: 4000
+{{- end }}

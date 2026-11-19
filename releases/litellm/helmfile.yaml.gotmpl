@@ -17,12 +17,13 @@ releases:
     values:
       - values/custom-secrets.yaml.gotmpl
       - values/monitoring.yaml.gotmpl
+      - values/network-policy.yaml.gotmpl
 
   - name: litellm
     labels:
       app: litellm
     chart: oci://ghcr.io/berriai/litellm-helm
-    version: 1.89.2
+    version: 1.83.14-stable
     installed: {{ .Values | get "litellm.installed" false }}
     namespace: litellm
     needs:

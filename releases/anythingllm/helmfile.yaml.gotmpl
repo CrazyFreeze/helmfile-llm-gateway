@@ -7,7 +7,7 @@ repositories:
     url: "https://bedag.github.io/helm-charts"
 
 releases:
-  - name: anythingllm-secrets
+  - name: anythingllm-resources
     labels:
       app: anythingllm
     chart: bedag/raw
@@ -15,17 +15,16 @@ releases:
     installed: {{ .Values | get "anythingllm.installed" false }}
     namespace: anythingllm
     values:
-      - values/custom-secrets.yaml.gotmpl
+      - values/secrets.yaml.gotmpl
+      - values/network-policy.yaml.gotmpl
 
   - name: anythingllm
     labels:
       app: anythingllm
-    chart: git::https://github.com/Mintplex-Labs/anything-llm@cloud-deployments/helm/charts/anythingllm?depth=1&ref=master
+    chart: git::https://github.com/Mintplex-Labs/anything-llm@cloud-deployments/helm/charts/anythingllm?depth=1&ref=v1.20.0
     installed: {{ .Values | get "anythingllm.installed" false }}
     namespace: anythingllm
     needs:
-      - anythingllm/anythingllm-secrets
+      - anythingllm/anythingllm-resources
     values:
       - values/anythingllm.yaml.gotmpl
-
-

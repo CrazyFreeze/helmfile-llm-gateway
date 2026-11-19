@@ -1,9 +1,13 @@
 {{- $secret := readFile "../private/minikube.yaml" | fromYaml -}}
+
 cluster:
   provider: minikube
   minikube:
     nodes: 1
     version: v1.27.5
+
+networkPolicies:
+  enabled: false
 
 # Common settings
 
@@ -15,11 +19,22 @@ topologyKeyZoneAffinity: "kubernetes.io/hostname"
 zone: minikube
 certManagerClusterIssuer: ca-internal
 
-# Releases
+security:
+  automountServiceAccountToken: false
+  podSecurityContext:
+    runAsNonRoot: false
+    runAsUser: 1000
+    runAsGroup: 1000
+    fsGroup: 1000
+    seccompProfile:
+      type: RuntimeDefault
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
 
-ingress-nginx:
-  # The minikube addon is used instead.
-  installed: false
+# Releases
 
 # LiteLLM Gateway
 
@@ -74,6 +89,8 @@ litellm:
 
 anythingllm:
   installed: true
+  servicePort: ""
+  image: {}
   storageSize: 5Gi
   llmProvider: "generic-openai"
   openAiTokenLimit: "32768"
