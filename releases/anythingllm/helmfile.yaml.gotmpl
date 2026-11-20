@@ -14,6 +14,20 @@ releases:
     version: 2.0.2
     installed: {{ .Values | get "anythingllm.installed" false }}
     namespace: anythingllm
+    {{- if .Values | get "podSecurityStandards.enabled" false }}
+    hooks:
+      - events: ["postsync"]
+        showlogs: false
+        command: "kubectl"
+        args:
+          - "label"
+          - "namespace"
+          - "{{`{{ .Release.Namespace }}`}}"
+          - "--overwrite"
+          {{- range $k, $v := .Values.podSecurityStandards.labels }}
+          - "{{ $k }}={{ $v }}"
+          {{- end }}
+    {{- end }}
     values:
       - values/secrets.yaml.gotmpl
       - values/network-policy.yaml.gotmpl

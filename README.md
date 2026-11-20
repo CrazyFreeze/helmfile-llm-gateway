@@ -118,9 +118,12 @@ make eval-view  # Открыть интерактивный веб-отчет в
 * В локальном профиле (`minikube.yaml.gotmpl`) установлен флаг `monitoring.enabled: false` для экономии оперативной памяти и совместимости с кластерами без установленных CRD Prometheus.
 * Для включения автоматического сбора метрик и алертов (недоступность шлюза, рост 5xx-ошибок, деградация `P95 Latency > 30s`) достаточно переключить `monitoring.enabled: true`.
 ---
-##  Безопасность и изоляция (Work in Progress)
-> **Статус:** базовая сетевая изоляция и защита контейнеров внедрены и протестированы, однако модуль безопасности находится в процессе доработки (в планах: добавление Pod Security Standards на уровне namespace и перевод `readOnlyRootFilesystem` в `true`).
-В проекте реализуется подход **Zero Trust** на двух уровнях: сетевая микросегментация между namspaces и ограничение привилегий самих контейнеров.
+## Безопасность и изоляция
+
+> **Статус:** контур безопасности внедрен и протестирован — в кластере активны сетевая микросегментация (`NetworkPolicy`), политики допуска `Pod Security Standards` и харденинг контейнеров (`readOnlyRootFilesystem: true`, сброс привилегий, отключение токенов `ServiceAccount`).
+
+В проекте реализуется базовый подход **Zero Trust** на трех уровнях: сетевая микросегментация между namespaces, политики допуска на уровне кластера и ограничение привилегий самих контейнеров.
+
 #### a. Сетевая изоляция (`NetworkPolicy`)
 По умолчанию в неймспейсах `litellm` и `anythingllm` действует правило `default-deny-all` (запрет всего входящего и исходящего трафика). Разрешены только строго необходимые маршруты (управляются флагом `networkPolicies.enabled` в `bases/`):
 
@@ -135,18 +138,21 @@ make eval-view  # Открыть интерактивный веб-отчет в
 | Все поды             | `CoreDNS` (`kube-system`)                    | `53` (TCP/UDP)  | Разрешено         |
 
 > **Важно для локального запуска:** стандартный сетевой мост Minikube (`docker` bridge) не поддерживает фильтрацию `NetworkPolicy`. Для работы сетевой изоляции в кластере должен быть установлен CNI с поддержкой политик (например, **Cilium** или **Calico**).
-#### b. Изоляция контейнеров и Kubernetes API
-* **Отключение токенов API:** во всех подах (`AnythingLLM`, `LiteLLM`, `PostgreSQL`) отключено автоматическое монтирование токена sa (`automountServiceAccountToken: false`).
+
+#### b. Pod Security Standards и изоляция контейнеров
+* **Pod Security Standards (PSA):** на неймспейсы `litellm` и `anythingllm` декларативно назначаются профили допуска (`enforce: baseline`, `warn/audit: restricted`, управляются через `podSecurityStandards.enabled` в `bases/`).
+* **Отключение токенов API:** во всех подах (`AnythingLLM`, `LiteLLM`, `PostgreSQL`) отключено автоматическое монтирование токена `ServiceAccount` (`automountServiceAccountToken: false`).
 * **Минимизация привилегий (`SecurityContext`):**
   * Включен запрет повышения привилегий (`allowPrivilegeEscalation: false`), сброшены все Linux Capabilities (`drop: ["ALL"]`, `CapEff: 0`) и применен `seccompProfile: RuntimeDefault`.
+  * Корневая файловая система переведена в режим только для чтения (`readOnlyRootFilesystem: true` с временными `emptyDir`-томами) для `LiteLLM` (включая init-контейнеры) и `PostgreSQL`. Для `AnythingLLM` точечно оставлен `readOnlyRootFilesystem: false` из-за отсутствия поддержки `volumes` в шаблоне upstream-чарта `v1.20.0`.
   * Контейнеры `AnythingLLM` и `PostgreSQL` запускаются от непривилегированных пользователей (`UID 1000` и `UID 1001`).
 
-#### c. Аудит изоляции
-Проверить корректность применения сетевых политик в живом кластере можно встроенной целью `Makefile` (запускается автоматически, если `networkPolicies.enabled: true`):
-
-```bash
-make netpol
-```
+#### c. Аудит изоляции и CI-проверки
+* **Runtime-аудит сети:** проверить корректность применения сетевых политик в живом кластере можно встроенной целью `Makefile` (запускается автоматически, если `networkPolicies.enabled: true`):
+  ```bash
+  make netpol
+  ```
+* **Статический анализ в CI:** при каждом `push` и `pull_request` GitHub Actions выполняет рендер манифестов (`helmfile template --skip-tests`), валидацию схем Kubernetes (`kubeconform -strict`) и сканирование безопасности (`Trivy` с проверкой конфигураций и утечек секретов).
 
 ---
 ## Roadmap (Планы по развитию)
