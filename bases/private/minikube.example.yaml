@@ -4,7 +4,8 @@ secrets:
     saltKey: "sk-salt-CHANGE_ME"
     dbPassword: "CHANGE_ME"
   inference:
-    model: "openai/CHANGE_ME" 
+    llmmodel: "openai/CHANGE_ME"
+    embmodel: "openai/CHANGE_ME"
     url: "http://CHANGE_ME"
     key: "CHANGE_ME"
     ip: "192.0.2.1"
@@ -12,3 +13,5 @@ secrets:
   anythingllm:
     authToken: "CHANGE_ME"
     jwtSecret: "CHANGE_ME"
+  agent:
+    litellmApiKey: "sk-CHANGE_ME"

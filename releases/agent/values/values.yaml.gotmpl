@@ -1,0 +1,157 @@
+{{- with .Values | get "agent" false }}
+{{- $agentNs := . | get "namespace" "agent" }}
+{{- $agentApp := $.Values | get "agent.labels.app" "sre-agent" }}
+{{- $servicePort := . | get "servicePort" 8000 }}
+{{- $allowedNamespaces := . | get "allowedNamespaces" (list "litellm" "anythingllm" "agent") }}
+
+resources:
+  - apiVersion: v1
+    kind: ServiceAccount
+    metadata:
+      name: sre-agent
+      namespace: {{ $agentNs }}
+    automountServiceAccountToken: true
+
+  {{- range $ns := $allowedNamespaces }}
+  - apiVersion: rbac.authorization.k8s.io/v1
+    kind: Role
+    metadata:
+      name: sre-agent-pod-reader
+      namespace: {{ $ns }}
+    rules:
+      - apiGroups: [""]
+        resources: ["pods", "pods/log", "services"]
+        verbs: ["get", "list"]
+
+  - apiVersion: rbac.authorization.k8s.io/v1
+    kind: RoleBinding
+    metadata:
+      name: sre-agent-pod-reader-binding
+      namespace: {{ $ns }}
+    subjects:
+      - kind: ServiceAccount
+        name: sre-agent
+        namespace: {{ $agentNs }}
+    roleRef:
+      kind: Role
+      name: sre-agent-pod-reader
+      apiGroup: rbac.authorization.k8s.io
+  {{- end }}
+
+  - apiVersion: v1
+    kind: ConfigMap
+    metadata:
+      name: sre-agent-config
+      namespace: {{ $agentNs }}
+    data:
+      PORTS_BASELINE_PATH: "/config/baseline.yaml"
+      baseline.yaml: |
+      {{- with . | get "portsBaseline" dict }}
+        {{- . | toYaml | nindent 8 }}
+      {{- end }}
+
+  - apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      name: sre-agent
+      namespace: {{ $agentNs }}
+      labels:
+        app: {{ $agentApp }}
+    spec:
+      replicas: 1
+      selector:
+        matchLabels:
+          app: {{ $agentApp }}
+      template:
+        metadata:
+          labels:
+            app: {{ $agentApp }}
+        spec:
+          serviceAccountName: sre-agent
+          automountServiceAccountToken: true
+          securityContext:
+            {{- $.Values.security.podSecurityContext | toYaml | nindent 12 }}
+          containers:
+            - name: sre-agent
+              image: "{{ . | get "image.repository" "sre-agent" }}:{{ . | get "image.tag" "0.1.0" }}"
+              imagePullPolicy: {{ . | get "image.pullPolicy" "IfNotPresent" }}
+              env:
+                - name: HOME
+                  value: /tmp
+              ports:
+                - name: http
+                  containerPort: {{ $servicePort }}
+              livenessProbe:
+                httpGet:
+                  path: /healthz
+                  port: http
+                initialDelaySeconds: 5
+                periodSeconds: 10
+              readinessProbe:
+                httpGet:
+                  path: /healthz
+                  port: http
+                initialDelaySeconds: 3
+                periodSeconds: 5
+              resources:
+                requests:
+                  cpu: "100m"
+                  memory: "128Mi"
+                limits:
+                  cpu: "500m"
+                  memory: "256Mi"
+              securityContext:
+                {{- $.Values.security.containerSecurityContext | toYaml | nindent 16 }}
+              volumeMounts:
+                - name: tmp
+                  mountPath: /tmp
+                - name: baseline-config
+                  mountPath: /config/baseline.yaml
+                  subPath: baseline.yaml
+                  readOnly: true
+          volumes:
+            - name: tmp
+              emptyDir: {}
+            - name: baseline-config
+              configMap:
+                name: sre-agent-config
+                items:
+                  - key: baseline.yaml
+                    path: baseline.yaml
+
+  - apiVersion: v1
+    kind: Service
+    metadata:
+      name: sre-agent
+      namespace: {{ $agentNs }}
+    spec:
+      type: ClusterIP
+      ports:
+        - name: http
+          port: {{ $servicePort }}
+          targetPort: http
+      selector:
+        app: {{ $agentApp }}
+
+  - apiVersion: networking.k8s.io/v1
+    kind: Ingress
+    metadata:
+      name: sre-agent
+      namespace: {{ $agentNs }}
+      annotations:
+        cert-manager.io/cluster-issuer: {{ $.Values.certManagerClusterIssuer }}
+    spec:
+      ingressClassName: {{ $.Values.internalIngressClass }}
+      rules:
+        - host: agent.{{ $.Values.internalDomain }}
+          http:
+            paths:
+              - path: /
+                pathType: Prefix
+                backend:
+                  service:
+                    name: sre-agent
+                    port:
+                      number: {{ $servicePort }}
+
+{{- end }}

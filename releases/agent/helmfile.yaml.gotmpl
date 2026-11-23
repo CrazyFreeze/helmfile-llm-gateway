@@ -1,0 +1,27 @@
+bases:
+  - ../../bases/setup.yaml.gotmpl
+
+---
+releases:
+  - name: agent
+    namespace: {{ .Values | get "agent.namespace" "agent" }}
+    installed: {{ .Values | get "agent.installed" false }}
+    chart: bedag/raw
+    version: 2.0.2
+    values:
+      - values/values.yaml.gotmpl
+      - values/network-policies.yaml.gotmpl
+    {{- if .Values | get "podSecurityStandards.enabled" false }}
+    hooks:
+      - events: ["postsync"]
+        showlogs: false
+        command: "kubectl"
+        args:
+          - "label"
+          - "namespace"
+          - "{{`{{ .Release.Namespace }}`}}"
+          - "--overwrite"
+          {{- range $k, $v := .Values.podSecurityStandards.labels }}
+          - "{{ $k }}={{ $v }}"
+          {{- end }}
+    {{- end }}

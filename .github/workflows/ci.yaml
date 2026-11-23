@@ -1,10 +1,22 @@
-name: Lint & Security Check
+name: Validate & Security Check Helmfile
 
 on:
   push:
     branches: [ main ]
+    paths:
+      - "bases/**"
+      - "releases/**"
+      - "helmfile.yaml*"
+      - ".trivyignore.yaml"
+      - ".github/workflows/validate-helmfile.yml"
   pull_request:
     branches: [ main ]
+    paths:
+      - "bases/**"
+      - "releases/**"
+      - "helmfile.yaml*"
+      - ".trivyignore.yaml"
+      - ".github/workflows/validate-helmfile.yml"
   workflow_dispatch:
 
 jobs:
@@ -24,8 +36,9 @@ jobs:
         run: |
           mkdir -p "$HOME/.local/bin"
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-          curl -sSL https://github.com/helmfile/helmfile/releases/download/v1.8.4/helmfile_1.8.4_linux_amd64.tar.gz | tar -xz -C /usr/local/bin helmfile
-          curl -sSL https://github.com/yannh/kubeconform/releases/download/v0.8.0/kubeconform-linux-amd64.tar.gz | tar -xz -C /usr/local/bin kubeconform
+          curl -sSL https://github.com/helmfile/helmfile/releases/download/v1.8.4/helmfile_1.8.4_linux_amd64.tar.gz | tar -xz -C "$HOME/.local/bin" helmfile
+          curl -sSL https://github.com/yannh/kubeconform/releases/download/v0.8.0/kubeconform-linux-amd64.tar.gz | tar -xz -C "$HOME/.local/bin" kubeconform
+          curl -sSL https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize/v5.8.0/kustomize_v5.8.0_linux_amd64.tar.gz | tar -xz -C "$HOME/.local/bin" kustomize
 
       - name: Prepare mock secrets for dry-run render
         run: |
@@ -51,4 +64,3 @@ jobs:
           trivyignores: '.trivyignore.yaml'
           severity: 'HIGH,CRITICAL'
           exit-code: '1'
-

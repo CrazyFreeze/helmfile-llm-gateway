@@ -9,11 +9,11 @@ repositories:
 releases:
   - name: anythingllm-resources
     labels:
-      app: anythingllm
+      app: {{ .Values | get "anythingllm.labels.app" "anythingllm" }}
     chart: bedag/raw
     version: 2.0.2
     installed: {{ .Values | get "anythingllm.installed" false }}
-    namespace: anythingllm
+    namespace: {{ .Values | get "anythingllm.namespace" "anythingllm" }}
     {{- if .Values | get "podSecurityStandards.enabled" false }}
     hooks:
       - events: ["postsync"]
@@ -34,11 +34,31 @@ releases:
 
   - name: anythingllm
     labels:
-      app: anythingllm
+      app: {{ .Values | get "anythingllm.labels.app" "anythingllm" }}
     chart: git::https://github.com/Mintplex-Labs/anything-llm@cloud-deployments/helm/charts/anythingllm?ref=v1.20.0
     installed: {{ .Values | get "anythingllm.installed" false }}
-    namespace: anythingllm
+    namespace: {{ .Values | get "anythingllm.namespace" "anythingllm" }}
     needs:
-      - anythingllm/anythingllm-resources
+      - {{ .Values | get "anythingllm.namespace" "anythingllm" }}/anythingllm-resources
     values:
       - values/anythingllm.yaml.gotmpl
+    {{- if .Values | get "anythingllm.mcpServers.enabled" false }}
+    strategicMergePatches:
+      - apiVersion: apps/v1
+        kind: Deployment
+        metadata:
+          name: anythingllm
+        spec:
+          template:
+            spec:
+              volumes:
+                - name: mcp-config
+                  configMap:
+                    name: anythingllm-mcp-config
+              containers:
+                - name: anythingllm
+                  volumeMounts:
+                    - name: mcp-config
+                      mountPath: /app/server/storage/plugins/anythingllm_mcp_servers.json
+                      subPath: anythingllm_mcp_servers.json
+    {{- end }}

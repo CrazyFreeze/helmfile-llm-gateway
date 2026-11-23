@@ -9,11 +9,11 @@ repositories:
 releases:
   - name: litellm-resources
     labels:
-      app: litellm
+      app: {{ .Values | get "litellm.labels.app" "litellm" }}
     chart: bedag/raw
     version: 2.0.2
     installed: {{ .Values | get "litellm.installed" false }}
-    namespace: litellm
+    namespace: {{ .Values | get "litellm.namespace" "litellm" }}
     {{- if .Values | get "podSecurityStandards.enabled" false }}
     hooks:
       - events: ["postsync"]
@@ -35,12 +35,12 @@ releases:
 
   - name: litellm
     labels:
-      app: litellm
+      app: {{ .Values | get "litellm.labels.app" "litellm" }}
     chart: oci://ghcr.io/berriai/litellm-helm
     version: 1.83.14-stable
     installed: {{ .Values | get "litellm.installed" false }}
-    namespace: litellm
+    namespace: {{ .Values | get "litellm.namespace" "litellm" }}
     needs:
-      - litellm/litellm-resources
+      - {{ .Values | get "litellm.namespace" "litellm" }}/litellm-resources
     values:
       - values/litellm.yaml.gotmpl
