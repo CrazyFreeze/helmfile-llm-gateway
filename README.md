@@ -1,3 +1,7 @@
+[![Build and Push MCP Agent](https://github.com/CrazyFreeze/helmfile-llm-gateway/actions/workflows/build-agent.yaml/badge.svg)](https://github.com/CrazyFreeze/helmfile-llm-gateway/actions/workflows/build-agent.yaml)
+[![Validate & Security Check Helmfile](https://github.com/CrazyFreeze/helmfile-llm-gateway/actions/workflows/ci.yaml/badge.svg)](https://github.com/CrazyFreeze/helmfile-llm-gateway/actions/workflows/ci.yaml)
+[![Build and Push DevContainer Image](https://github.com/CrazyFreeze/helmfile-llm-gateway/actions/workflows/build-devcontainer.yaml/badge.svg)](https://github.com/CrazyFreeze/helmfile-llm-gateway/actions/workflows/build-devcontainer.yaml)
+
 # Kubernetes LLM Gateway, RAG & MCP Stack (LiteLLM + AnythingLLM + FastMCP + Promptfoo)
 
 Референсная архитектура по построению отказоустойчивой и наблюдаемой инфраструктуры для локального инференса LLM-моделей с диагностическим SRE-контуром в Kubernetes. 
@@ -10,6 +14,7 @@
 graph LR
     User([Разработчик / IDE]) -->|HTTPS / Ingress| UI[AnythingLLM RAG UI]
     User -->|OpenAI API / Ingress| GW[LiteLLM Proxy Gateway]
+    User -.->|HTTPS / Ingress :8000| MCP[K8s SRE MCP Server]
     CI([CI / make eval]) -->|HTTPS / Ingress| GW
     
     subgraph K8s [Kubernetes Cluster / Minikube]
@@ -120,7 +125,7 @@ make eval-view  # Открыть интерактивный веб-отчет в
 В настройках плагина (**Continue** / **Cline**) выберите провайдер **OpenAI Compatible** и укажите:
 * **Base URL:** `https://api.llm-dashboard.local/v1`
 * **API Key:** Ваш `LITELLM_MASTER_KEY` (или виртуальный ключ, созданный в Admin UI `https://api.llm-dashboard.local/ui`)
-* **Model ID:** `lm-studio-model`
+* **Model ID:** `Local-model`
 
 > **Примечание по TLS:** Поскольку на Ingress используется внутренний локальный `ClusterIssuer` (`ca-internal`), при подключении из **Continue** добавьте параметр `verifySsl: false` в `requestOptions`, либо импортируйте корневой сертификат CA в доверенные сертификаты вашей ОС.
 
