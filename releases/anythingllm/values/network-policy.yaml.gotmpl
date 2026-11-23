@@ -1,4 +1,11 @@
 {{- if .Values.networkPolicies.enabled }}
+{{- $anyllmNs := $.Values | get "anythingllm.namespace" "anythingllm" }}
+{{- $anyllmApp := $.Values | get "anythingllm.labels.app" "anythingllm" }}
+{{- $litellmApp := $.Values | get "litellm.labels.app" "litellm" }}
+{{- $litellmNs := $.Values | get "litellm.namespace" "litellm" }}
+{{- $ingressNs := $.Values | get "ingress.namespace" "ingress-nginx" }}
+{{- $agentApp := $.Values | get "agent.labels.app" "sre-agent" }}
+
 templates:
   - |
     apiVersion: networking.k8s.io/v1
@@ -6,10 +13,10 @@ templates:
     metadata:
       name: default-deny-all
     spec:
-    podSelector: {}
-    policyTypes:
-    - Ingress
-    - Egress
+      podSelector: {}
+      policyTypes:
+      - Ingress
+      - Egress
   - |
     apiVersion: networking.k8s.io/v1
     kind: NetworkPolicy
@@ -37,11 +44,11 @@ templates:
     kind: NetworkPolicy
     metadata:
       name: anythingllm-policy
-      namespace: anythingllm
+      namespace: {{ $anyllmNs }}
     spec:
       podSelector:
         matchLabels:
-          app.kubernetes.io/name: anythingllm
+          app.kubernetes.io/name: {{ $anyllmApp }}
       policyTypes:
       - Ingress
       - Egress
@@ -49,19 +56,31 @@ templates:
       - from:
         - namespaceSelector:
             matchLabels:
-              kubernetes.io/metadata.name: ingress-nginx
+              kubernetes.io/metadata.name: {{ $ingressNs }}
         ports:
         - protocol: TCP
-          port: {{ $.Values | get "anythingllm.servicePort" | default "3001" }}
+          port: {{ $.Values | get "anythingllm.servicePort" nil | default 3001 }}
       egress:
       - to:
         - namespaceSelector:
             matchLabels:
-              kubernetes.io/metadata.name: litellm
+              kubernetes.io/metadata.name: {{ $litellmNs }}
           podSelector:
             matchLabels:
-              app.kubernetes.io/name: litellm
+              app.kubernetes.io/name: {{ $litellmApp }}
         ports:
         - protocol: TCP
           port: 4000
+      {{- if $.Values | get "agent.installed" false }}
+      - to:
+          - namespaceSelector:
+              matchLabels:
+                kubernetes.io/metadata.name: {{ $.Values | get "agent.namespace" "agent" }}
+            podSelector:
+              matchLabels:
+                app: {{ $agentApp }}
+        ports:
+          - protocol: TCP
+            port: {{ $.Values | get "agent.servicePort" 8000 }}
+      {{- end }}
 {{- end }}

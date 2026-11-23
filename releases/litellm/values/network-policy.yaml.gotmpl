@@ -1,11 +1,17 @@
-{{- if .Values.networkPolicies.enabled }}
+{{- if $.Values | get "networkPolicies.enabled" false }}
+{{- $litellmNs := $.Values | get "litellm.namespace" "litellm" }}
+{{- $litellmApp := $.Values | get "litellm.labels.app" "litellm" }}
+{{- $anyllmNs := $.Values | get "anythingllm.namespace" "anythingllm" }}
+{{- $anyllmApp := $.Values | get "anythingllm.labels.app" "anythingllm" }}
+{{- $ingressNs := $.Values | get "ingress.namespace" "ingress-nginx" }}
+
 templates:
   - |
     apiVersion: networking.k8s.io/v1
     kind: NetworkPolicy
     metadata:
       name: default-deny-all
-      namespace: litellm
+      namespace: {{ $litellmNs }}
     spec:
       podSelector: {}
       policyTypes:
@@ -16,7 +22,7 @@ templates:
     kind: NetworkPolicy
     metadata:
       name: allow-dns-egress
-      namespace: litellm
+      namespace: {{ $litellmNs }}
     spec:
       podSelector: {}
       policyTypes:
@@ -40,7 +46,7 @@ templates:
     kind: NetworkPolicy
     metadata:
       name: postgres-policy
-      namespace: litellm
+      namespace: {{ $litellmNs }}
     spec:
       podSelector:
         matchLabels:
@@ -52,7 +58,7 @@ templates:
         - from:
             - podSelector:
                 matchLabels:
-                  app.kubernetes.io/name: litellm
+                  app.kubernetes.io/name: {{ $litellmApp }}
           ports:
             - protocol: TCP
               port: 5432
@@ -62,11 +68,11 @@ templates:
     kind: NetworkPolicy
     metadata:
       name: litellm-gateway-policy
-      namespace: litellm
+      namespace: {{ $litellmNs }}
     spec:
       podSelector:
         matchLabels:
-          app.kubernetes.io/name: litellm
+          app.kubernetes.io/name: {{ $litellmApp }}
       policyTypes:
         - Ingress
         - Egress
@@ -74,20 +80,32 @@ templates:
         - from:
             - namespaceSelector:
                 matchLabels:
-                  kubernetes.io/metadata.name: anythingllm
+                  kubernetes.io/metadata.name: {{ $anyllmNs }}
               podSelector:
                 matchLabels:
-                  app.kubernetes.io/name: anythingllm
+                  app.kubernetes.io/name: {{ $anyllmApp }}
           ports:
             - protocol: TCP
               port: 4000
         - from:
             - namespaceSelector:
                 matchLabels:
-                  kubernetes.io/metadata.name: ingress-nginx
+                  kubernetes.io/metadata.name: {{ $ingressNs }}
           ports:
             - protocol: TCP
               port: 4000
+        {{- if $.Values | get "agent.installed" false }}
+        - from:
+            - namespaceSelector:
+                matchLabels:
+                  kubernetes.io/metadata.name: {{ $.Values | get "agent.namespace" "agent" }}
+              podSelector:
+                matchLabels:
+                  app: sre-agent
+          ports:
+          - protocol: TCP
+            port: {{ $.Values | get "litellm.servicePort" 4000 }}
+        {{- end }}
         {{- if .Values.monitoring.enabled }}
         - from:
             - namespaceSelector:

@@ -79,6 +79,34 @@ netpol:
 		echo "  [4/4] ОШИБКА: Открыт исходящий трафик из PostgreSQL!"; exit 1; \
 	fi; \
 	\
+	if kubectl get ns agent >/dev/null 2>&1; then \
+		echo "Проверка изоляции контура SRE Agent (MCP)..."; \
+		if kubectl run nettest-rag-mcp -n anythingllm --image=$(TEST_IMAGE) --labels="app.kubernetes.io/name=anythingllm" --restart=Never --rm --attach -- \
+			sh -c "sleep 2 && nc -zv -w 3 sre-agent.agent.svc.cluster.local 8000" >/dev/null 2>&1; then \
+			echo "  [5/8] РАЗРЕШЕНО: RAG -> SRE Agent MCP (:8000)"; \
+		else \
+			echo "  [5/8] ОШИБКА: Нет доступа RAG -> SRE Agent MCP (:8000)"; exit 1; \
+		fi; \
+		if ! kubectl run nettest-agent-gw -n agent --image=$(TEST_IMAGE) --labels="app=sre-agent" --restart=Never --rm --attach -- \
+			sh -c "sleep 2 && nc -zv -w 3 litellm.litellm.svc.cluster.local 4000" >/dev/null 2>&1; then \
+			echo "  [6/8] ЗАБЛОКИРОВАНО: SRE Agent -> LiteLLM (:4000)"; \
+		else \
+			echo "  [6/8] ОШИБКА: Открыт прямой доступ SRE Agent -> LiteLLM (:4000)"; exit 1; \
+		fi; \
+		if ! kubectl run nettest-agent-db -n agent --image=$(TEST_IMAGE) --labels="app=sre-agent" --restart=Never --rm --attach -- \
+			sh -c "sleep 2 && nc -zv -w 3 litellm-postgresql.litellm.svc.cluster.local 5432" >/dev/null 2>&1; then \
+			echo "  [7/8] ЗАБЛОКИРОВАНО: SRE Agent -> PostgreSQL (:5432)"; \
+		else \
+			echo "  [7/8] ОШИБКА: Открыт прямой доступ SRE Agent -> PostgreSQL (:5432)!"; exit 1; \
+		fi; \
+		if ! kubectl run nettest-agent-inet -n agent --image=$(TEST_IMAGE) --labels="app=sre-agent" --restart=Never --rm --attach -- \
+			sh -c "sleep 2 && nc -zv -w 3 1.1.1.1 443" >/dev/null 2>&1; then \
+			echo "  [8/8] ЗАБЛОКИРОВАНО: SRE Agent -> Внешний мир (:443)"; \
+		else \
+			echo "  [8/8] ОШИБКА: Открыт выход SRE Agent во внешний интернет (:443)!"; exit 1; \
+		fi; \
+	fi; \
+	\
 	echo "Сетевой аудит успешно пройден: контур Zero Trust подтвержден."
 
 deploy: apply netpol eval

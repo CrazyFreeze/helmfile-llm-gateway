@@ -1,5 +1,10 @@
 {{- $secret := readFile "../private/minikube.yaml" | fromYaml -}}
 
+ingress:
+  # The minikube addon is used instead.
+  installed: false
+  namespace: ingress-nginx
+
 networkPolicies:
   enabled: false
 
@@ -46,6 +51,8 @@ litellm:
   namespace: "litellm"
   serviceName: "litellm"
   servicePort: 4000
+  labels:
+      app: litellm
   masterkey: {{ $secret.secrets.litellm.masterKey | quote }}
   saltkey: {{ $secret.secrets.litellm.saltKey | quote }}
   dbPassword: {{ $secret.secrets.litellm.dbPassword | quote }}
@@ -60,9 +67,12 @@ litellm:
         cpu: "1"
         memory: "2Gi"
 
+  initContainer:
+    image: mirror.gcr.io/bitnamilegacy/os-shell:12-debian-12-r16
+
   envVars:
-    LM_STUDIO_API_BASE: {{ $secret.secrets.inference.url | quote }}
-    LM_STUDIO_API_KEY: {{ $secret.secrets.inference.key | quote }}
+    MODEL_API_BASE: {{ $secret.secrets.inference.url | quote }}
+    MODEL_API_KEY: {{ $secret.secrets.inference.key | quote }}
 
   proxy_config:
     litellm_settings:
@@ -71,10 +81,17 @@ litellm:
     model_list:
       - model_name: "Local-model"
         litellm_params:
-          model: {{ $secret.secrets.inference.model | quote }}
-          api_base: os.environ/LM_STUDIO_API_BASE
-          api_key: os.environ/LM_STUDIO_API_KEY
+          model: {{ $secret.secrets.inference.llmmodel | quote }}
+          api_base: os.environ/MODEL_API_BASE
+          api_key: os.environ/MODEL_API_KEY
           timeout: 600
+      - model_name: "Local-embeddings"
+        litellm_params:
+          model: {{ $secret.secrets.inference.embmodel | quote }}
+          api_base: os.environ/MODEL_API_BASE
+          api_key: os.environ/MODEL_API_KEY
+        model_info:
+          mode: embedding
     general_settings:
       master_key: os.environ/PROXY_MASTER_KEY
       disable_spend_logs: false
@@ -92,6 +109,9 @@ litellm:
 
 anythingllm:
   installed: true
+  namespace: "anythingllm"
+  labels:
+      app: anythingllm
   servicePort: ""
   image: {}
   storageSize: 5Gi
@@ -99,6 +119,52 @@ anythingllm:
   openAiTokenLimit: "32768"
   authToken: {{ $secret.secrets.anythingllm.authToken | quote }}
   jwtSecret: {{ $secret.secrets.anythingllm.jwtSecret | quote }}
+  mcpServers:
+    enabled: true
+    name: "k8s-sre-agent"
+    type: "streamable"
+    url: "http://sre-agent.agent.svc.cluster.local:8000/mcp"
+
+# Agent
+
+agent:
+  installed: true
+  namespace: "agent"
+  labels:
+      app: sre-agent
+  servicePort: 8000
+  allowedNamespaces:
+    - "litellm"
+    - "anythingllm"
+    - "agent"
+  portsBaseline:
+    litellm:
+      allowed_services:
+        - name: "litellm"
+          type: "ClusterIP"
+          ports: [4000]
+        - name: "litellm-postgresql"
+          type: "ClusterIP"
+          ports: [5432]
+        - name: "litellm-postgresql-hl"
+          type: "ClusterIP"
+          ports: [5432]
+      allowed_container_ports: [4000, 5432]
+      notes: "Only LiteLLM Proxy (4000) and internal PostgreSQL (5432, including headless service) are permitted. NodePort/LoadBalancer are forbidden."
+    anythingllm:
+      allowed_services:
+        - name: "anythingllm"
+          type: "ClusterIP"
+          ports: [3001]
+      allowed_container_ports: [3001]
+      notes: "Only AnythingLLM Web UI (3001) is permitted."
+    agent:
+      allowed_services:
+        - name: "sre-agent"
+          type: "ClusterIP"
+          ports: [8000]
+      allowed_container_ports: [8000]
+      notes: "Only SRE Diagnostic Agent FastAPI/MCP server (8000) is permitted."
 
 # Monitoring
 

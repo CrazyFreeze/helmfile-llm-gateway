@@ -1,7 +1,7 @@
-# Kubernetes LLM Gateway & RAG Stack (LiteLLM + AnythingLLM + Promptfoo)
+# Kubernetes LLM Gateway, RAG & MCP Stack (LiteLLM + AnythingLLM + FastMCP + Promptfoo)
 
-Пет-проект по построению отказоустойчивой и наблюдаемой инфраструктуры для локального инференса LLM-моделей. 
-Проект имитирует продуктивную архитектуру с разделением вычислительного и сервисного слоев.
+Референсная архитектура по построению отказоустойчивой и наблюдаемой инфраструктуры для локального инференса LLM-моделей с диагностическим SRE-контуром в Kubernetes. 
+Проект воспроизводит продакшн-подходы с разделением вычислительного и сервисного слоев.
 Подходит для развертывания корпоративного AI-шлюза, RAG-интерфейса и автоматизированного контура оценки качества моделей на базе кластера Kubernetes и выделенного узла инференса.
 
 ## Архитектура стенда
@@ -14,6 +14,8 @@ graph LR
     
     subgraph K8s [Kubernetes Cluster / Minikube]
         UI -->|Internal Cluster DNS| GW
+        UI -->|MCP Streamable HTTP :8000| MCP[K8s SRE MCP Server]
+        MCP -->|RBAC Read-Only| K8sAPI[(Kubernetes API)]
         GW <-->|Prisma ORM| DB[(PostgreSQL)]
         GW -.->|/metrics Bearer Auth| Prom[Prometheus ServiceMonitor]
     end
@@ -33,13 +35,15 @@ graph LR
 ```text
 .
 ├── .devcontainer/              # Конфигурация Dev Container (VS Code / Codespaces)
+├── agent/                      # K8s Diagnostic MCP Server (FastMCP)
 ├── bases/                      # Базовые настройки окружений и шаблоны секретов
 │   ├── setup.yaml.gotmpl       # Авто-обнаружение окружений и настройки Helmfile
 │   ├── envs/                   # Параметры окружений (minikube.yaml.gotmpl)
 │   └── private/                # Шаблоны секретов (*.example.yaml)
 ├── releases/                   # Модульные релизы сервисов в Kubernetes
 │   ├── litellm/                # AI Gateway + PostgreSQL + Resources (Secrets & Monitoring)
-│   └── anythingllm/            # RAG-интерфейс + LanceDB PVC + Secret
+│   ├── anythingllm/            # RAG-интерфейс + LanceDB PVC + Secret
+│   └── agent/                  # MCP (FastMCP & RBAC)
 ├── evals/                      # Автоматизированное тестирование LLM (Promptfoo)
 │   ├── promptfooconfig.yaml    # Сценарии тестов и конфигурация LLM-as-a-Judge
 │   └── prompts/                # Шаблоны промптов
@@ -49,7 +53,7 @@ graph LR
 ## Быстрый старт
 
 ### 1. Подготовка окружения
-Откройте проект в **VS Code Dev Container** (`Dev Containers: Reopen in Container`) или убедитесь, что на хосте установлены `kubectl`, `helm`, `helmfile` (с плагином `helm-diff`), `make` и `Node.js >= 22.22.0`.
+Откройте проект в **VS Code Dev Container** (`Dev Containers: Reopen in Container`) или убедитесь, что на хосте установлены `kubectl`, `helm`, `helmfile` (с плагином `helm-diff`), `make` и `Node.js >= 22.2.0`.
 
 ### 2. Настройка секретов и переменных
 При первом запуске `Makefile` автоматически создаст файл `bases/private/minikube.yaml` из шаблона `bases/private/minikube.example.yaml` и проверит отсутствие заглушек `CHANGE_ME`:
@@ -91,6 +95,16 @@ make eval-view  # Открыть интерактивный веб-отчет в
 ```
 ---
 
+## K8s SRE Diagnostic MCP Server
+
+В неймспейсе `agent` разворачивается легковесный диагностический сервер на базе **FastMCP** (`Streamable HTTP`), который предоставляет LLM-агенту в AnythingLLM (через `@agent`) безопасный read-only доступ к состоянию кластера:
+Доступные MCP-инструменты:
+- `list_pods(namespace)` — статус всех подов и счетчик перезапусков в разрешенном неймспейсе.
+- `get_pod_logs(namespace, pod_name, tail_lines)` — получение последних строк логов контейнера.
+- `audit_exposed_ports(namespace)` — аудит открытых портов Pod и Service с сопоставлением против эталонной матрицы безопасности (`baseline.yaml`).
+Декларативная интеграция: при `agent.installed: true` конфигурация `anythingllm_mcp_servers.json` автоматически монтируется в AnythingLLM через ConfigMap.
+---
+
 ## Подключение локальных клиентов (VS Code / IDE)
 
 Платформа предоставляет единый OpenAI-совместимый API-шлюз, к которому можно напрямую подключать IDE-ассистентов (**Continue**, **Cline**, **Roo Code**) и внешние скрипты с локальной машины.
@@ -127,20 +141,22 @@ make eval-view  # Открыть интерактивный веб-отчет в
 #### a. Сетевая изоляция (`NetworkPolicy`)
 По умолчанию в неймспейсах `litellm` и `anythingllm` действует правило `default-deny-all` (запрет всего входящего и исходящего трафика). Разрешены только строго необходимые маршруты (управляются флагом `networkPolicies.enabled` в `bases/`):
 
-| Источник             | Цель                                         | Порт            | Статус            |
-| :------------------- | :------------------------------------------- | :-------------- | :---------------- |
-| `Ingress Controller` | `AnythingLLM` / `LiteLLM`                    | `3001` / `4000` | Разрешено         |
-| `AnythingLLM` (RAG)  | `LiteLLM Gateway`                            | `4000`          | Разрешено         |
-| `AnythingLLM` (RAG)  | `PostgreSQL` / `Inference Node` / `Internet` | ANY             | **Заблокировано** |
-| `LiteLLM Gateway`    | `PostgreSQL`                                 | `5432`          | Разрешено         |
-| `LiteLLM Gateway`    | `Inference Node` (внешний узел)              | `1234`          | Разрешено         |
-| `PostgreSQL`         | Любой исходящий трафик (Egress)              | ANY             | **Заблокировано** |
-| Все поды             | `CoreDNS` (`kube-system`)                    | `53` (TCP/UDP)  | Разрешено         |
+| Источник             | Цель                                         | Порт                     | Статус            |
+| :------------------- | :------------------------------------------- | :----------------------- | :---------------- |
+| `Ingress Controller` | `AnythingLLM` / `LiteLLM` / `SRE MCP Agent`  | `3001` / `4000` / `8000` | Разрешено         |
+| `AnythingLLM` (RAG)  | `LiteLLM Gateway` / `SRE MCP Agent`          | `4000` / `8000`          | Разрешено         |
+| `AnythingLLM` (RAG)  | `PostgreSQL` / `Inference Node` / `Internet` | ANY                      | **Заблокировано** |
+| `SRE MCP Agent`      | `Kubernetes API Server`                      | `443` / `6443` / `8443`  | Разрешено         |
+| `SRE MCP Agent`      |  `LiteLLM` / `PostgreSQL` / `Internet`       | ANY                      | **Заблокировано** |
+| `LiteLLM Gateway`    | `PostgreSQL`                                 | `5432`                   | Разрешено         |
+| `LiteLLM Gateway`    | `Inference Node` (внешний узел)              | `1234`                   | Разрешено         |
+| `PostgreSQL`         | Любой исходящий трафик (Egress)              | ANY                      | **Заблокировано** |
+| Все поды             | `CoreDNS` (`kube-system`)                    | `53` (TCP/UDP)           | Разрешено         |
 
 > **Важно для локального запуска:** стандартный сетевой мост Minikube (`docker` bridge) не поддерживает фильтрацию `NetworkPolicy`. Для работы сетевой изоляции в кластере должен быть установлен CNI с поддержкой политик (например, **Cilium** или **Calico**).
 
-#### b. Pod Security Standards и изоляция контейнеров
-* **Pod Security Standards (PSA):** на неймспейсы `litellm` и `anythingllm` декларативно назначаются профили допуска (`enforce: baseline`, `warn/audit: restricted`, управляются через `podSecurityStandards.enabled` в `bases/`).
+#### b. Pod Security Standards, RBAC и изоляция контейнеров
+* **Pod Security Standards (PSA) и RBAC:** на неймспейсы `litellm`,`anythingllm` и `agent` декларативно назначаются профили допуска (`enforce: baseline`, `warn/audit: restricted`, управляются через `podSecurityStandards.enabled` в `bases/`), а для `sre-agent` настроены точечные `read-only` права (`pods`, `pods/log`, `services`) строго в рамках `allowedNamespaces`.
 * **Отключение токенов API:** во всех подах (`AnythingLLM`, `LiteLLM`, `PostgreSQL`) отключено автоматическое монтирование токена `ServiceAccount` (`automountServiceAccountToken: false`).
 * **Минимизация привилегий (`SecurityContext`):**
   * Включен запрет повышения привилегий (`allowPrivilegeEscalation: false`), сброшены все Linux Capabilities (`drop: ["ALL"]`, `CapEff: 0`) и применен `seccompProfile: RuntimeDefault`.
@@ -160,4 +176,3 @@ make eval-view  # Открыть интерактивный веб-отчет в
 - [ ] Добавление Fallback-моделей в LiteLLM (переключение на облачный API при недоступности локального GPU-хоста).
 - [ ] Настройка алертов в Alertmanager при росте latency (TTFT - Time To First Token) или ошибках 5xx.
 - [ ] Добавление браузерной IDE (`code-server`) в отдельный релиз/неймспейс с преднастроенным AI-ассистентом (Continue / Cline), работающим через шлюз `LiteLLM` в рамках контура `NetworkPolicy`.
-- [ ] Развертывание базового LLM-агента с подключением к `LiteLLM` и изоляцией исходящего трафика (Egress) только на разрешенные инструменты и API.

@@ -16,7 +16,7 @@
       "minikube": "none"
     },
     "ghcr.io/devcontainers-extra/features/helmfile:1": {
-      "version": "0.169.2"
+      "version": "1.8.2"
     },
     "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {}
   },

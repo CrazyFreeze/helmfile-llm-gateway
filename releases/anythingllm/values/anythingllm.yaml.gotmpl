@@ -7,6 +7,7 @@
 {{- $llmPort := $.Values | get "litellm.servicePort" 4000 -}}
 {{- $defaultBasePath := printf "http://%s.%s.svc.cluster.local:%v/v1" $llmSvc $llmNs $llmPort -}}
 {{- $defaultModel := (index $.Values.litellm.proxy_config.model_list 0).model_name -}}
+
 replicaCount: 1
 
 image:
@@ -16,16 +17,22 @@ image:
 
 service:
   type: ClusterIP
-  port: {{ . | get "servicePort" | default "3001" }}
+  port: {{ . | get "servicePort" nil | default 3001 }}
 
 config:
   DISABLE_TELEMETRY: "true"
-  STORAGE_DIR: "/storage"
+  STORAGE_DIR: "/app/server/storage"
+  UID: "1000"
+  GID: "1000"
   LLM_PROVIDER: {{ . | get "llmProvider" "generic-openai" | quote }}
   GENERIC_OPEN_AI_BASE_PATH: {{ . | get "openAiBasePath" $defaultBasePath | quote }}
   GENERIC_OPEN_AI_MODEL_PREF: {{ . | get "openAiModelPref" $defaultModel | quote }}
   GENERIC_OPEN_AI_MODEL_TOKEN_LIMIT: {{ . | get "openAiTokenLimit" "32768" | quote }}
-  EMBEDDING_ENGINE: "native"
+  EMBEDDING_ENGINE: "generic-openai"
+  EMBEDDING_BASE_PATH: {{ . | get "embeddingBasePath" $defaultBasePath | quote }}
+  EMBEDDING_MODEL_PREF: {{ . | get "embeddingModelPref" "Local-embeddings" | quote }}
+  EMBEDDING_MODEL_MAX_CHUNK_LENGTH: {{ . | get "embeddingMaxChunkLength" "8191" | quote }}
+
   VECTOR_DB: "lancedb"
   COMMUNITY_HUB_BUNDLE_DOWNLOADS_ENABLED: "false"
 
@@ -35,7 +42,7 @@ envFrom:
 
 persistentVolume:
   size: {{ . | get "storageSize" "5Gi" }}
-  mountPath: "/storage"
+  mountPath: "/app/server/storage"
   accessModes:
     - ReadWriteOnce
 
@@ -73,6 +80,10 @@ ingress:
       paths:
         - path: /
           pathType: ImplementationSpecific
+  tls:
+    - secretName: anythingllm-tls
+      hosts:
+        - chat.{{ $.Values.internalDomain }}
 
 serviceAccount:
   create: true
@@ -84,5 +95,35 @@ podSecurityContext:
 securityContext:
   {{- $.Values.security.containerSecurityContext | toYaml | nindent 2 }}
   readOnlyRootFilesystem: false
+
+{{- if $.Values.anythingllm.mcpServers.enabled }}
+extraObjects:
+  - apiVersion: v1
+    kind: ConfigMap
+    metadata:
+      name: anythingllm-mcp-config
+    data:
+      anythingllm_mcp_servers.json: |
+        {
+          "mcpServers": {
+            {{ $.Values | get "anythingllm.mcpServers.name" "agent" | quote }}: {
+              "type": {{ $.Values | get "anythingllm.mcpServers.type" "streamable" | quote }},
+              "url": {{ $.Values | get "anythingllm.mcpServers.url" "" | quote }}
+            }
+          }
+        }
+initContainers:
+  - name: fix-plugins-permissions
+    image: busybox:1.36
+    securityContext:
+      {{- $.Values.security.containerSecurityContext | toYaml | nindent 6 }}
+    command:
+      - sh
+      - -c
+      - mkdir -p /app/server/storage/plugins/agent-skills
+    volumeMounts:
+      - name: storage
+        mountPath: /app/server/storage
+{{- end }}
 
 {{- end }}

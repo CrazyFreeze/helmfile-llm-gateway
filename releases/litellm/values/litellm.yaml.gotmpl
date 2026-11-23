@@ -3,19 +3,23 @@
 {{- with .Values | get "litellm" false }}
 {{- $secretName := $.Values | get "litellm.customSecretName" (printf "%s-liteadmin-secrets" ($.Release.Name | trunc 45 | trimSuffix "-")) }}
 {{- $extDbEnabled := . | get "externalDb.enabled" false }}
+
 global:
   security:
     allowInsecureImages: {{ not $extDbEnabled }}
+
 strategy:
   type: Recreate
+
 replicaCount: {{ . | get "replicaCount" 1 }}
+
 migrationJob:
   enabled: {{ $extDbEnabled }}
   backoffLimit: 10
   activeDeadlineSeconds: 600
   extraInitContainers:
   - name: wait
-    image: mirror.gcr.io/bitnamilegacy/os-shell:12-debian-12-r16
+    image: {{ $.Values | get "litellm.initContainer.image" "mirror.gcr.io/bitnamilegacy/os-shell:12-debian-12-r16" }}
     securityContext:
       {{- $.Values.security.containerSecurityContext | toYaml | nindent 6 }}
     command:
@@ -29,11 +33,13 @@ migrationJob:
     envFrom:
       - secretRef:
           name: {{ $secretName }}
+
 startupProbe:
   path: /health/readiness
   initialDelaySeconds: 15
   periodSeconds: 10
   failureThreshold: 30
+
 livenessProbe:
   path: /health/liveliness
   initialDelaySeconds: 0
@@ -41,6 +47,7 @@ livenessProbe:
   timeoutSeconds: 10
   successThreshold: 1
   failureThreshold: 30
+
 readinessProbe:
   path: /health/readiness
   initialDelaySeconds: 0
@@ -48,9 +55,10 @@ readinessProbe:
   timeoutSeconds: 10
   successThreshold: 1
   failureThreshold: 30
+
 extraInitContainers:
   - name: wait-for-postgres
-    image: mirror.gcr.io/bitnamilegacy/os-shell:12-debian-12-r16
+    image: {{ $.Values | get "litellm.initContainer.image" "mirror.gcr.io/bitnamilegacy/os-shell:12-debian-12-r16" }}
     securityContext:
       {{- $.Values.security.containerSecurityContext | toYaml | nindent 6 }}
     command:
@@ -64,6 +72,7 @@ extraInitContainers:
     envFrom:
       - secretRef:
           name: {{ $secretName }}
+
 {{- with . | get "liteadmin" false }}
 liteadmin:
   storageSize: {{ . | get "storageSize" false }}
@@ -73,32 +82,41 @@ liteadmin:
     {{- . | toYaml | nindent 4 }}
   {{- end }}
 {{- end }}
+
 {{- with . | get "proxy_config" false }}
 proxy_config:
   {{- . | toYaml | nindent 2 }}
 {{- end }}
+
 environmentSecrets:
   - {{ $secretName }}
+
 masterkeySecretName: {{ $secretName }}
 masterkeySecretKey: "LITELLM_MASTER_KEY"
+
 {{- with . | get "image" false }}
 image:
   pullPolicy: {{ . | get "pullPolicy" | default "IfNotPresent" }}
   tag: {{ . | get "tag" false }}
 {{- end }}
+
 envVars:
   LITELLM_UI_PATH: "/tmp/litellm-ui"
+
 serviceAccount:
   create: true
   automount: {{ $.Values.security.automountServiceAccountToken }}
+
 podSecurityContext:
   runAsNonRoot: false
   runAsUser: 0
   runAsGroup: 0
   seccompProfile:
     type: RuntimeDefault
+
 securityContext:
   {{- $.Values.security.containerSecurityContext | toYaml | nindent 2 }}
+
 ingress:
   enabled: true
   className: {{ $.Values.internalIngressClass }}
@@ -110,6 +128,11 @@ ingress:
       paths:
         - path: /
           pathType: ImplementationSpecific
+  tls:
+    - secretName: litellm-tls
+      hosts:
+        - chat.{{ $.Values.internalDomain }}
+
 postgresql:
   enabled: {{ not $extDbEnabled }}
   architecture: standalone
